@@ -204,7 +204,8 @@
             "type": "string"
           },
           "thumbnail": {
-            "type": "string"
+            "type": "string",
+            "description": "Proxy endpoint serving the thumbnail image"
           },
           "resolution": {
             "type": "string"

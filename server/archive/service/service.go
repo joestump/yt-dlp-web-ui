@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 
+	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/filebrowser"
+
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/archive/data"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/archive/domain"
 )
@@ -41,7 +43,7 @@ func (s *Service) HardDelete(ctx context.Context, id string) (*domain.ArchiveEnt
 		Id:        res.Id,
 		Title:     res.Title,
 		Path:      res.Path,
-		Thumbnail: res.Thumbnail,
+		Thumbnail: filebrowser.ThumbnailURL(res.Thumbnail),
 		Source:    res.Source,
 		Metadata:  res.Metadata,
 		CreatedAt: res.CreatedAt,
@@ -59,7 +61,7 @@ func (s *Service) SoftDelete(ctx context.Context, id string) (*domain.ArchiveEnt
 		Id:        res.Id,
 		Title:     res.Title,
 		Path:      res.Path,
-		Thumbnail: res.Thumbnail,
+		Thumbnail: filebrowser.ThumbnailURL(res.Thumbnail),
 		Source:    res.Source,
 		Metadata:  res.Metadata,
 		CreatedAt: res.CreatedAt,
@@ -84,7 +86,7 @@ func (s *Service) List(
 			Id:        model.Id,
 			Title:     model.Title,
 			Path:      model.Path,
-			Thumbnail: model.Thumbnail,
+			Thumbnail: filebrowser.ThumbnailURL(model.Thumbnail),
 			Source:    model.Source,
 			Metadata:  model.Metadata,
 			CreatedAt: model.CreatedAt,

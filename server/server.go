@@ -198,6 +198,7 @@ func newServer(c serverConfig) *http.Server {
 		r.Post("/delete", filebrowser.DeleteFile)
 		r.Get("/d/{id}", filebrowser.DownloadFile)
 		r.Get("/v/{id}", filebrowser.SendFile)
+		r.Get("/t/{id}", filebrowser.SendThumbnail)
 		r.Get("/bulk", filebrowser.BulkDownload(c.mdb))
 	})
 

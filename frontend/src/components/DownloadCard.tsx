@@ -65,7 +65,7 @@ const DownloadCard: React.FC<Props> = ({ download, onStop, onCopy }) => {
           <CardMedia
             component="img"
             height={180}
-            image={download.info.thumbnail}
+            image={`${serverAddr}${download.info.thumbnail}?token=${localStorage.getItem('token')}`}
           /> :
           <Skeleton variant="rectangular" height={180} />
         }

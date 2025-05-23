@@ -44,7 +44,7 @@ const ArchiveCard: React.FC<Props> = ({ entry, onDelete, onHardDelete }) => {
           <CardMedia
             component="img"
             height={180}
-            image={entry.thumbnail}
+            image={`${serverAddr}${entry.thumbnail}?token=${localStorage.getItem('token')}`}
           /> :
           <Skeleton variant="rectangular" height={180} />
         }

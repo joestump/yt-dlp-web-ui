@@ -13,8 +13,11 @@ import (
 	"slices"
 	"syscall"
 
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -95,6 +98,7 @@ func (p *Process) Start() {
 		strings.Split(p.Url, "?list")[0], //no playlist
 		"--newline",
 		"--no-colors",
+		"--write-thumbnail",
 		"--no-playlist",
 		"--progress-template",
 		templateReplacer.Replace(downloadTemplate),
@@ -115,22 +119,28 @@ func (p *Process) Start() {
 	cmd := exec.Command(config.Instance().DownloaderPath, params...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		slog.Error("failed to get a stdout pipe", slog.Any("err", err))
-		panic(err)
-	}
+       stdout, err := cmd.StdoutPipe()
+       if err != nil {
+               slog.Error("failed to get a stdout pipe", slog.Any("err", err))
+               p.Progress.Status = StatusErrored
+               memDbEvents <- p
+               return
+       }
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		slog.Error("failed to get a stderr pipe", slog.Any("err", err))
-		panic(err)
-	}
+       stderr, err := cmd.StderrPipe()
+       if err != nil {
+               slog.Error("failed to get a stderr pipe", slog.Any("err", err))
+               p.Progress.Status = StatusErrored
+               memDbEvents <- p
+               return
+       }
 
-	if err := cmd.Start(); err != nil {
-		slog.Error("failed to start yt-dlp process", slog.Any("err", err))
-		panic(err)
-	}
+       if err := cmd.Start(); err != nil {
+               slog.Error("failed to start yt-dlp process", slog.Any("err", err))
+               p.Progress.Status = StatusErrored
+               memDbEvents <- p
+               return
+       }
 
 	p.proc = cmd.Process
 
@@ -221,6 +231,9 @@ func (p *Process) detectYtDlpErrors(r io.Reader) {
 // Convention: All completed processes has progress -1
 // and speed 0 bps.
 func (p *Process) Complete() {
+	// move thumbnail to dedicated folder if present
+	p.moveThumbnail()
+
 	// auto archive
 	// TODO: it's not that deterministic :/
 	if p.Progress.Percentage == "" && p.Progress.Speed == 0 {
@@ -299,6 +312,50 @@ func (p *Process) GetFileName(o *DownloadOutput) error {
 
 	p.Output.SavedFilePath = strings.Trim(string(out), "\n")
 	return nil
+}
+
+func (p *Process) moveThumbnail() {
+	if p.Output.SavedFilePath == "" {
+		return
+	}
+
+	base := strings.TrimSuffix(filepath.Base(p.Output.SavedFilePath), filepath.Ext(p.Output.SavedFilePath))
+	dir := filepath.Dir(p.Output.SavedFilePath)
+
+	exts := []string{".jpg", ".jpeg", ".png", ".webp"}
+	var src string
+	for _, e := range exts {
+		candidate := filepath.Join(dir, base+e)
+		if _, err := os.Stat(candidate); err == nil {
+			src = candidate
+			break
+		}
+	}
+
+	if src == "" {
+		if u, err := url.Parse(p.Info.Thumbnail); err == nil {
+			if ext := path.Ext(u.Path); ext != "" {
+				candidate := filepath.Join(dir, base+ext)
+				if _, err := os.Stat(candidate); err == nil {
+					src = candidate
+				}
+			}
+		}
+	}
+
+	if src == "" {
+		return
+	}
+
+       thumbDir := filepath.Join(dir, "thumbnails")
+       os.MkdirAll(thumbDir, 0o755)
+       dest := filepath.Join(thumbDir, base+".jpg")
+
+       if err := os.Rename(src, dest); err != nil {
+               slog.Error("failed moving thumbnail", slog.Any("err", err))
+               return
+       }
+       p.Info.Thumbnail = dest
 }
 
 func (p *Process) SetPending() {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/config"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/filebrowser"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/internal"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/internal/livestream"
 )
@@ -51,7 +52,11 @@ func (s *Service) Running(ctx context.Context) (*[]internal.ProcessResponse, err
 	case <-ctx.Done():
 		return nil, context.Canceled
 	default:
-		return s.mdb.All(), nil
+		res := s.mdb.All()
+		for i := range *res {
+			(*res)[i].Info.Thumbnail = filebrowser.ThumbnailURL((*res)[i].Info.Thumbnail)
+		}
+		return res, nil
 	}
 }
 

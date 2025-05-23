@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/filebrowser"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/formats"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/internal"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/internal/livestream"
@@ -121,7 +122,11 @@ func (s *Service) Pending(args NoArgs, pending *Pending) error {
 
 // Running retrieves a slice of all Processes progress
 func (s *Service) Running(args NoArgs, running *Running) error {
-	*running = *s.db.All()
+	res := s.db.All()
+	for i := range *res {
+		(*res)[i].Info.Thumbnail = filebrowser.ThumbnailURL((*res)[i].Info.Thumbnail)
+	}
+	*running = *res
 	return nil
 }
 

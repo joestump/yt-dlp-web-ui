@@ -13,15 +13,20 @@ import (
 	"slices"
 	"syscall"
 
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/archiver"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/common"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/config"
 )
+
+// OnComplete is called after a download finishes.
+var OnComplete func(*Process)
 
 const downloadTemplate = `download:
 {
@@ -95,6 +100,7 @@ func (p *Process) Start() {
 		strings.Split(p.Url, "?list")[0], //no playlist
 		"--newline",
 		"--no-colors",
+		"--write-thumbnail",
 		"--no-playlist",
 		"--progress-template",
 		templateReplacer.Replace(downloadTemplate),
@@ -221,22 +227,15 @@ func (p *Process) detectYtDlpErrors(r io.Reader) {
 // Convention: All completed processes has progress -1
 // and speed 0 bps.
 func (p *Process) Complete() {
+	// move thumbnail to dedicated folder if present
+	p.moveThumbnail()
+
 	// auto archive
 	// TODO: it's not that deterministic :/
 	if p.Progress.Percentage == "" && p.Progress.Speed == 0 {
-		var serializedMetadata bytes.Buffer
-
-		json.NewEncoder(&serializedMetadata).Encode(p.Info)
-
-		archiver.Publish(&archiver.Message{
-			Id:        p.Id,
-			Path:      p.Output.SavedFilePath,
-			Title:     p.Info.Title,
-			Thumbnail: p.Info.Thumbnail,
-			Source:    p.Url,
-			Metadata:  serializedMetadata.String(),
-			CreatedAt: p.Info.CreatedAt,
-		})
+		if OnComplete != nil {
+			OnComplete(p)
+		}
 	}
 
 	p.Progress = DownloadProgress{
@@ -299,6 +298,49 @@ func (p *Process) GetFileName(o *DownloadOutput) error {
 
 	p.Output.SavedFilePath = strings.Trim(string(out), "\n")
 	return nil
+}
+
+func (p *Process) moveThumbnail() {
+	if p.Output.SavedFilePath == "" {
+		return
+	}
+
+	base := strings.TrimSuffix(filepath.Base(p.Output.SavedFilePath), filepath.Ext(p.Output.SavedFilePath))
+	dir := filepath.Dir(p.Output.SavedFilePath)
+
+	exts := []string{".jpg", ".jpeg", ".png", ".webp"}
+	var src string
+	for _, e := range exts {
+		candidate := filepath.Join(dir, base+e)
+		if _, err := os.Stat(candidate); err == nil {
+			src = candidate
+			break
+		}
+	}
+
+	if src == "" {
+		if u, err := url.Parse(p.Info.Thumbnail); err == nil {
+			if ext := path.Ext(u.Path); ext != "" {
+				candidate := filepath.Join(dir, base+ext)
+				if _, err := os.Stat(candidate); err == nil {
+					src = candidate
+				}
+			}
+		}
+	}
+
+	if src == "" {
+		return
+	}
+
+	thumbDir := filepath.Join(dir, "thumbnails")
+	os.MkdirAll(thumbDir, 0o755)
+	dest := filepath.Join(thumbDir, base+".jpg")
+	if err := os.Rename(src, dest); err != nil {
+		slog.Warn("failed to move thumbnail", slog.String("err", err.Error()))
+		return
+	}
+	p.Info.Thumbnail = dest
 }
 
 func (p *Process) SetPending() {

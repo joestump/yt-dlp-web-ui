@@ -250,3 +250,53 @@ func BulkDownload(mdb *internal.MemoryDB) http.HandlerFunc {
 		}
 	}
 }
+
+// SendThumbnail serves a thumbnail image stored on disk.
+func SendThumbnail(w http.ResponseWriter, r *http.Request) {
+	path := chi.URLParam(r, "id")
+	if path == "" {
+		http.Error(w, "inexistent path", http.StatusBadRequest)
+		return
+	}
+
+	path, err := url.QueryUnescape(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	filename := string(decoded)
+	root := config.Instance().DownloadPath
+	if !strings.Contains(filepath.Dir(filepath.Clean(filename)), filepath.Clean(root)) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	fd, err := os.Open(filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer fd.Close()
+
+	buf := make([]byte, 512)
+	n, _ := fd.Read(buf)
+	fd.Seek(0, 0)
+	w.Header().Set("Content-Type", http.DetectContentType(buf[:n]))
+	io.Copy(w, fd)
+}
+
+// ThumbnailURL builds the endpoint path for a given thumbnail file path.
+func ThumbnailURL(path string) string {
+	if path == "" {
+		return ""
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(path))
+	return "/filebrowser/t/" + encoded
+}

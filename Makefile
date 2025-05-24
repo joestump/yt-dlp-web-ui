@@ -21,3 +21,4 @@ multiarch: fe
 
 clean:
 	rm -rf build
+	rm -fr *.mp4 *.jpg *.webp *.png *.bmp thumbnails/*

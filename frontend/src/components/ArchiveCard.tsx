@@ -26,6 +26,7 @@ type Props = {
 
 const ArchiveCard: React.FC<Props> = ({ entry, onDelete, onHardDelete }) => {
   const serverAddr = useAtomValue(serverURL)
+  const thumbnailUrl = entry.thumbnail ? `${serverAddr}${entry.thumbnail}` : ''
 
   const viewFile = (path: string) => {
     const encoded = base64URLEncode(path)
@@ -44,7 +45,7 @@ const ArchiveCard: React.FC<Props> = ({ entry, onDelete, onHardDelete }) => {
           <CardMedia
             component="img"
             height={180}
-            image={entry.thumbnail}
+            image={thumbnailUrl}
           /> :
           <Skeleton variant="rectangular" height={180} />
         }

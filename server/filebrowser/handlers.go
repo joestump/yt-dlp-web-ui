@@ -270,36 +270,11 @@ func SendThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	filename := string(decoded)
 	root := config.Instance().DownloadPath
-
-	// Check if the file is within the download path
-	absFilename, err := filepath.Abs(filepath.Clean(filename))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	
-	absRoot, err := filepath.Abs(filepath.Clean(root))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Check if the file is within the root directory
-	if !strings.HasPrefix(absFilename, absRoot) {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
+	thumbnailPath := filepath.Join(root, "thumbnails", path)
 
 	// Open and decode the image
-	f, err := os.Open(filename)
+	f, err := os.Open(thumbnailPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

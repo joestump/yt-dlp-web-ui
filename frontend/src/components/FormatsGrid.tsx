@@ -1,5 +1,7 @@
 import { Button, ButtonGroup, Grid, Paper, Typography } from "@mui/material"
 import type { DLMetadata } from '../types'
+import { useAtomValue } from 'jotai'
+import { serverURL } from '../atoms/settings'
 
 type Props = {
   downloadFormats: DLMetadata
@@ -24,6 +26,9 @@ export default function FormatsGrid({
   pickedAudioFormat,
   pickedVideoFormat,
 }: Props) {
+  const serverAddr = useAtomValue(serverURL)
+  const thumbnailUrl = downloadFormats.thumbnail ? `${serverAddr}${downloadFormats.thumbnail}` : ''
+
   return (
     <Grid container spacing={2} mt={2}>
       <Grid item xs={12}>
@@ -42,7 +47,7 @@ export default function FormatsGrid({
               {/* <Skeleton variant="rectangular" height={180} /> */}
             </Grid>
             <Grid item xs={12} pb={1}>
-              <img src={downloadFormats.thumbnail} height={260} width="100%" style={{ objectFit: 'cover' }} />
+              <img src={thumbnailUrl} height={260} width="100%" style={{ objectFit: 'cover' }} />
             </Grid>
             {/* video only */}
             <Grid item xs={12}>

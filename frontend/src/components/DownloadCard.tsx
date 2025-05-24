@@ -32,7 +32,7 @@ type Props = {
 
 const DownloadCard: React.FC<Props> = ({ download, onStop, onCopy }) => {
   const serverAddr = useAtomValue(serverURL)
-  const thumbnailUrl = `${serverAddr}/filebrowser/t/${btoa(download.info.thumbnail)}`
+  const thumbnailUrl = download.info.thumbnail ? `${serverAddr}${download.info.thumbnail}` : ''
 
   const isCompleted = useCallback(
     () => download.progress.percentage === '-1',

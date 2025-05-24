@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,6 +28,8 @@ import (
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/common"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/config"
 	"encoding/base64"
+	"golang.org/x/image/webp"
+	"golang.org/x/image/bmp"
 )
 
 const downloadTemplate = `download:
@@ -403,7 +409,31 @@ func (p *Process) moveThumbnail() {
 		}
 		defer resp.Body.Close()
 
-		// Save the thumbnail
+		// Read the entire response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			slog.Error("failed to read thumbnail data", slog.Any("err", err))
+			return
+		}
+
+		// Try to decode as webp first
+		var img image.Image
+		if strings.HasSuffix(p.Info.Thumbnail, ".webp") {
+			img, err = webp.Decode(bytes.NewReader(body))
+			if err != nil {
+				slog.Error("failed to decode webp thumbnail", slog.Any("err", err))
+				return
+			}
+		} else {
+			// Try standard image formats
+			img, _, err = image.Decode(bytes.NewReader(body))
+			if err != nil {
+				slog.Error("failed to decode downloaded thumbnail", slog.Any("err", err))
+				return
+			}
+		}
+
+		// Save as JPEG
 		thumbnailPath = filepath.Join(thumbnailsDir, p.Id+".jpg")
 		f, err := os.Create(thumbnailPath)
 		if err != nil {
@@ -412,8 +442,8 @@ func (p *Process) moveThumbnail() {
 		}
 		defer f.Close()
 
-		if _, err := io.Copy(f, resp.Body); err != nil {
-			slog.Error("failed to save thumbnail", slog.String("path", thumbnailPath), slog.Any("err", err))
+		if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 90}); err != nil {
+			slog.Error("failed to save thumbnail as JPEG", slog.String("path", thumbnailPath), slog.Any("err", err))
 			return
 		}
 	} else {
@@ -424,17 +454,15 @@ func (p *Process) moveThumbnail() {
 		
 		// Look for the thumbnail in the download directory
 		downloadDir := filepath.Dir(p.Output.SavedFilePath)
-		matches, err := filepath.Glob(filepath.Join(downloadDir, baseName+".*"))
-		if err != nil {
-			slog.Error("failed to find thumbnail", slog.String("dir", downloadDir), slog.Any("err", err))
-			return
-		}
-
-		// Find the first file that's not the video file
+		
+		// Try common thumbnail extensions
+		extensions := []string{".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 		var originalThumbnail string
-		for _, match := range matches {
-			if match != p.Output.SavedFilePath {
-				originalThumbnail = match
+		
+		for _, ext := range extensions {
+			possibleThumbnail := filepath.Join(downloadDir, baseName+ext)
+			if _, err := os.Stat(possibleThumbnail); err == nil {
+				originalThumbnail = possibleThumbnail
 				break
 			}
 		}
@@ -444,13 +472,47 @@ func (p *Process) moveThumbnail() {
 			return
 		}
 
-		// Move the thumbnail to the thumbnails directory
-		thumbnailPath = filepath.Join(thumbnailsDir, p.Id+filepath.Ext(originalThumbnail))
-		if err := os.Rename(originalThumbnail, thumbnailPath); err != nil {
-			slog.Error("failed to move thumbnail", 
-				slog.String("from", originalThumbnail), 
-				slog.String("to", thumbnailPath), 
-				slog.Any("err", err))
+		// Open the original thumbnail
+		originalFile, err := os.Open(originalThumbnail)
+		if err != nil {
+			slog.Error("failed to open original thumbnail", slog.String("path", originalThumbnail), slog.Any("err", err))
+			return
+		}
+		defer originalFile.Close()
+
+		// Try to decode based on file extension
+		var img image.Image
+		ext := strings.ToLower(filepath.Ext(originalThumbnail))
+		switch ext {
+		case ".webp":
+			img, err = webp.Decode(originalFile)
+		case ".bmp":
+			img, err = bmp.Decode(originalFile)
+		default:
+			img, _, err = image.Decode(originalFile)
+		}
+		if err != nil {
+			slog.Error("failed to decode original thumbnail", slog.String("path", originalThumbnail), slog.Any("err", err))
+			return
+		}
+
+		// Save as JPEG
+		thumbnailPath = filepath.Join(thumbnailsDir, p.Id+".jpg")
+		f, err := os.Create(thumbnailPath)
+		if err != nil {
+			slog.Error("failed to create thumbnail file", slog.String("path", thumbnailPath), slog.Any("err", err))
+			return
+		}
+		defer f.Close()
+
+		if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 90}); err != nil {
+			slog.Error("failed to save thumbnail as JPEG", slog.String("path", thumbnailPath), slog.Any("err", err))
+			return
+		}
+
+		// Remove the original thumbnail
+		if err := os.Remove(originalThumbnail); err != nil {
+			slog.Error("failed to remove original thumbnail", slog.String("path", originalThumbnail), slog.Any("err", err))
 			return
 		}
 	}

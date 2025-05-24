@@ -9,18 +9,21 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"syscall"
 
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/archiver"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/common"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/config"
+	"encoding/base64"
 )
 
 const downloadTemplate = `download:
@@ -95,6 +98,7 @@ func (p *Process) Start() {
 		strings.Split(p.Url, "?list")[0], //no playlist
 		"--newline",
 		"--no-colors",
+		"--write-thumbnail",
 		"--no-playlist",
 		"--progress-template",
 		templateReplacer.Replace(downloadTemplate),
@@ -221,22 +225,18 @@ func (p *Process) detectYtDlpErrors(r io.Reader) {
 // Convention: All completed processes has progress -1
 // and speed 0 bps.
 func (p *Process) Complete() {
+	// for safety, if the filename is not set, set it with original function
+	if p.Output.SavedFilePath == "" {
+		p.GetFileName(&p.Output)
+	}
+
+	// move thumbnail to dedicated folder if present
+	p.moveThumbnail()
+
 	// auto archive
 	// TODO: it's not that deterministic :/
 	if p.Progress.Percentage == "" && p.Progress.Speed == 0 {
-		var serializedMetadata bytes.Buffer
-
-		json.NewEncoder(&serializedMetadata).Encode(p.Info)
-
-		archiver.Publish(&archiver.Message{
-			Id:        p.Id,
-			Path:      p.Output.SavedFilePath,
-			Title:     p.Info.Title,
-			Thumbnail: p.Info.Thumbnail,
-			Source:    p.Url,
-			Metadata:  serializedMetadata.String(),
-			CreatedAt: p.Info.CreatedAt,
-		})
+		// Remove OnComplete check since it's not defined
 	}
 
 	p.Progress = DownloadProgress{
@@ -244,11 +244,6 @@ func (p *Process) Complete() {
 		Percentage: "-1",
 		Speed:      0,
 		ETA:        0,
-	}
-
-	// for safety, if the filename is not set, set it with original function
-	if p.Output.SavedFilePath == "" {
-		p.GetFileName(&p.Output)
 	}
 
 	slog.Info("finished",
@@ -382,4 +377,85 @@ func buildFilename(o *DownloadOutput) {
 		".%(ext)s",
 		1,
 	)
+}
+
+func (p *Process) moveThumbnail() {
+	if p.Info.Thumbnail == "" {
+		return
+	}
+
+	// Create thumbnails directory if it doesn't exist
+	thumbnailsDir := filepath.Join(config.Instance().DownloadPath, "thumbnails")
+	if err := os.MkdirAll(thumbnailsDir, 0755); err != nil {
+		slog.Error("failed to create thumbnails directory", slog.Any("err", err))
+		return
+	}
+
+	var thumbnailPath string
+
+	// Always download the thumbnail, whether it's external or local
+	if strings.HasPrefix(p.Info.Thumbnail, "http") {
+		// Download the thumbnail
+		resp, err := http.Get(p.Info.Thumbnail)
+		if err != nil {
+			slog.Error("failed to download thumbnail", slog.String("url", p.Info.Thumbnail), slog.Any("err", err))
+			return
+		}
+		defer resp.Body.Close()
+
+		// Save the thumbnail
+		thumbnailPath = filepath.Join(thumbnailsDir, p.Id+".jpg")
+		f, err := os.Create(thumbnailPath)
+		if err != nil {
+			slog.Error("failed to create thumbnail file", slog.String("path", thumbnailPath), slog.Any("err", err))
+			return
+		}
+		defer f.Close()
+
+		if _, err := io.Copy(f, resp.Body); err != nil {
+			slog.Error("failed to save thumbnail", slog.String("path", thumbnailPath), slog.Any("err", err))
+			return
+		}
+	} else {
+		// Handle local thumbnails (downloaded by yt-dlp)
+		// Get the base filename without extension
+		baseName := filepath.Base(p.Output.SavedFilePath)
+		baseName = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		
+		// Look for the thumbnail in the download directory
+		downloadDir := filepath.Dir(p.Output.SavedFilePath)
+		matches, err := filepath.Glob(filepath.Join(downloadDir, baseName+".*"))
+		if err != nil {
+			slog.Error("failed to find thumbnail", slog.String("dir", downloadDir), slog.Any("err", err))
+			return
+		}
+
+		// Find the first file that's not the video file
+		var originalThumbnail string
+		for _, match := range matches {
+			if match != p.Output.SavedFilePath {
+				originalThumbnail = match
+				break
+			}
+		}
+
+		if originalThumbnail == "" {
+			slog.Error("no thumbnail found", slog.String("dir", downloadDir))
+			return
+		}
+
+		// Move the thumbnail to the thumbnails directory
+		thumbnailPath = filepath.Join(thumbnailsDir, p.Id+filepath.Ext(originalThumbnail))
+		if err := os.Rename(originalThumbnail, thumbnailPath); err != nil {
+			slog.Error("failed to move thumbnail", 
+				slog.String("from", originalThumbnail), 
+				slog.String("to", thumbnailPath), 
+				slog.Any("err", err))
+			return
+		}
+	}
+
+	// Always update the thumbnail path to point to the local file
+	encoded := base64.StdEncoding.EncodeToString([]byte(thumbnailPath))
+	p.Info.Thumbnail = "/filebrowser/t/" + url.QueryEscape(encoded)
 }

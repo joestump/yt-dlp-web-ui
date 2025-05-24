@@ -4,6 +4,11 @@ import (
 	"archive/zip"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png" // Register PNG decoder
+	_ "image/gif" // Register GIF decoder
 	"io"
 	"io/fs"
 	"net/http"
@@ -249,4 +254,84 @@ func BulkDownload(mdb *internal.MemoryDB) http.HandlerFunc {
 			return
 		}
 	}
+}
+
+// SendThumbnail serves a thumbnail image stored on disk.
+func SendThumbnail(w http.ResponseWriter, r *http.Request) {
+	path := chi.URLParam(r, "id")
+	if path == "" {
+		http.Error(w, "inexistent path", http.StatusBadRequest)
+		return
+	}
+
+	path, err := url.QueryUnescape(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	filename := string(decoded)
+	root := config.Instance().DownloadPath
+
+	// Check if the file is within the download path
+	absFilename, err := filepath.Abs(filepath.Clean(filename))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	
+	absRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if the file is within the root directory
+	if !strings.HasPrefix(absFilename, absRoot) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Open and decode the image
+	f, err := os.Open(filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Set JPEG content type and encode
+	w.Header().Set("Content-Type", "image/jpeg")
+	if err := jpeg.Encode(w, img, &jpeg.Options{Quality: 90}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// ThumbnailURL builds the endpoint path for a given thumbnail file path.
+func ThumbnailURL(path string) string {
+	if path == "" {
+		return ""
+	}
+
+	// If it's already a local path, encode it for the thumbnail endpoint
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, ".") {
+		encoded := base64.StdEncoding.EncodeToString([]byte(path))
+		return fmt.Sprintf("/filebrowser/t/%s", url.QueryEscape(encoded))
+	}
+
+	// For external URLs, return as is
+	return path
 }

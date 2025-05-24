@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v3/server/config"
 )
 
 func validateToken(tokenValue string) error {
@@ -42,6 +43,12 @@ func validateToken(tokenValue string) error {
 
 func Authenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If authentication is not required, skip token validation
+		if !config.Instance().RequireAuth {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		token := r.Header.Get("X-Authentication")
 		if token == "" {
 			token = r.URL.Query().Get("token")

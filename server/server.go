@@ -13,6 +13,7 @@ import (
 	"net/rpc"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -38,6 +39,24 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+// ensureDirectories creates necessary directories for the application
+func ensureDirectories() error {
+	conf := config.Instance()
+	
+	// Create download path if it doesn't exist
+	if err := os.MkdirAll(conf.DownloadPath, 0755); err != nil {
+		return fmt.Errorf("failed to create download directory: %w", err)
+	}
+
+	// Create thumbnails directory inside download path
+	thumbnailsPath := filepath.Join(conf.DownloadPath, "thumbnails")
+	if err := os.MkdirAll(thumbnailsPath, 0755); err != nil {
+		return fmt.Errorf("failed to create thumbnails directory: %w", err)
+	}
+
+	return nil
+}
 
 type RunConfig struct {
 	App     fs.FS
@@ -66,6 +85,12 @@ func RunBlocking(rc *RunConfig) {
 	}
 
 	conf := config.Instance()
+
+	// Ensure required directories exist
+	if err := ensureDirectories(); err != nil {
+		slog.Error("failed to create required directories", slog.String("err", err.Error()))
+		return
+	}
 
 	// file based logging
 	if conf.EnableFileLogging {
@@ -197,6 +222,7 @@ func newServer(c serverConfig) *http.Server {
 		r.Post("/downloaded", filebrowser.ListDownloaded)
 		r.Post("/delete", filebrowser.DeleteFile)
 		r.Get("/d/{id}", filebrowser.DownloadFile)
+		r.Get("/t/{id}", filebrowser.SendThumbnail)
 		r.Get("/v/{id}", filebrowser.SendFile)
 		r.Get("/bulk", filebrowser.BulkDownload(c.mdb))
 	})

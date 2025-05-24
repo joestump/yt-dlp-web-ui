@@ -116,6 +116,44 @@
           }
         ]
       }
+    },
+    "/filebrowser/t/{id}": {
+      "get": {
+        "tags": ["filebrowser"],
+        "summary": "Get a thumbnail image",
+        "description": "Returns a thumbnail image for a video, converted to JPEG format",
+        "operationId": "getThumbnail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Base64 encoded path to the thumbnail file"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -204,7 +242,8 @@
             "type": "string"
           },
           "thumbnail": {
-            "type": "string"
+            "type": "string",
+            "description": "URL to the thumbnail image. If the thumbnail is stored locally, this will be a path to the local thumbnail endpoint"
           },
           "resolution": {
             "type": "string"
